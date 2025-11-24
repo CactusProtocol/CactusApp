@@ -1,0 +1,48 @@
+# ⚙️ Development Guide for CactusProtocol
+
+This guide provides instructions for setting up your development environment and interacting with the CactUScript compiler and the Solana programs.
+
+## I. Environment Setup
+
+### A. Compiler Dependencies
+1.  **Install Rust:** Follow the official instructions for your operating system.
+2.  **Install Solana CLI:** This is required for deploying and interacting with programs.
+    ```bash
+    sh -c "$(curl -sSfL [https://install.solana.com/beta](https://install.solana.com/beta))"
+    ```
+3.  **Install Anchor:** If you plan to extend the compiler with Anchor features.
+    ```bash
+    # Assuming you have Rust's Cargo installed
+    cargo install --git [https://github.com/project-serum/anchor](https://github.com/project-serum/anchor) anchor-cli --tag v0.28.0
+    ```
+
+## II. Compiling CactUScript
+
+The compiler lives in the `cactuScript/compiler` directory.
+
+1.  **Build the Compiler:**
+    ```bash
+    cd cactuScript/compiler
+    cargo build --release
+    # The executable 'cactusc' is now in target/release/
+    ```
+
+2.  **Compile the Router Program:**
+    Use the compiled executable to generate the BPF bytecode (`.so` file).
+    ```bash
+    # Run from the root directory
+    ./cactuScript/compiler/target/release/cactusc compile ./programs/CactusSwapRouter/src/main.cactus
+    # Output: programs/CactusSwapRouter/target/CactusSwapRouter.so
+    ```
+
+## III. Testing the Router
+
+Integration tests are located in the `tests/` directory and typically run using TypeScript/Jest. You must have a local Solana validator running.
+
+```bash
+# Start a local validator (in a separate terminal)
+solana-test-validator 
+
+# Run the tests
+npm install # if not already done
+npm test tests/router.test.ts
