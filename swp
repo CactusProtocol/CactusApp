@@ -1,0 +1,86 @@
+# CACTUScript v0.2 - DeFi Router Protocol
+
+# Import standard Solana modules
+use solana::system_program
+use spl_token::Token
+use external::JupiterAggregator # External DEX Program Stub
+
+# ===================================================
+# 1. State Definition (Storage)
+# ===================================================
+
+# Global parameters for the router
+storage RouterState:
+    admin_fee_collector: Pubkey  # Address for fee collection
+    fee_basis_points: U16        # Fee percentage (e.g., 50 = 0.50%)
+    
+# ===================================================
+# 2. Router Protocol (Smart Contract)
+# ===================================================
+
+protocol CactusSwapRouter:
+
+    # Executes a token swap across two different pools (A -> B -> C).
+    fn multi_hop_swap(
+        # Transaction Context
+        @signer user: Pubkey,
+        @storage router_state: RouterState,
+
+        # User Token Accounts (Must be initialized)
+        @account user_token_a: Token,   # Token A (Input)
+        @account user_token_c: Token,   # Token C (Output)
+
+        # Swap Parameters
+        amount_a_in: U64,                # Amount of Token A to swap
+        min_amount_c_out: U64,           # Minimum expected amount of Token C (Slippage protection)
+
+        # External Pool Data
+        @account pool_a_b: Pubkey,       
+        @account pool_b_c: Pubkey        
+    ):
+        
+        log "Initializing multi-hop swap: A -> B -> C"
+        
+        # --- STEP 1: FEE COLLECTION ---
+        let fee_amount = amount_a_in * router_state.fee_basis_points / 10000
+        let swap_amount = amount_a_in - fee_amount
+        
+        token_program::transfer(
+            from: user_token_a,
+            to: router_state.admin_fee_collector, 
+            authority: user,
+            amount: fee_amount
+        )
+        log "Fee collected: {}", fee_amount
+        
+        # --- STEP 2: SWAP A -> B (External Call 1) ---
+        let @account temp_token_b_storage = token_program::create_temp_account(owner: @program_id, mint: pool_b_c.mint)
+        
+        # Cross-Program Invocation (CPI) to JupiterAggregator
+        JupiterAggregator::swap(
+            @signer: @program_id,  
+            from: user_token_a,
+            to: temp_token_b_storage,
+            pool_data: pool_a_b,
+            amount: swap_amount
+        )
+        
+        let amount_b_out = temp_token_b_storage.balance 
+
+        # --- STEP 3: SWAP B -> C (External Call 2) ---
+        JupiterAggregator::swap(
+            @signer: @program_id, 
+            from: temp_token_b_storage,
+            to: user_token_c,
+            pool_data: pool_b_c,
+            amount: amount_b_out
+        )
+
+        # --- STEP 4: VERIFICATION AND CLEANUP ---
+        let final_amount_c = user_token_c.balance_change_from_start 
+
+        assert final_amount_c >= min_amount_c_out, "Transaction failed: Excessive slippage."
+
+        token_program::close_temp_account(account: temp_token_b_storage, close_to: user)
+        
+        log "Swap successful! Final Token C received: {}", final_amount_c
